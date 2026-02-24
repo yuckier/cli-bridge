@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <title>Gemini Bridge</title>
+
+    <!-- xterm.js for true terminal rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+
+    <!-- QR code scanner -->
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            /* Prevent Android keyboard from shrinking the layout */
+            min-height: 100vh;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            font-size: 1rem;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        #status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f85149;
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+
+        #status-dot.connected {
+            background: #3fb950;
+        }
+
+        #status-dot.reconnecting {
+            background: #d29922;
+        }
+
+        #status-label {
+            font-size: 0.75rem;
+            color: #8b949e;
+            white-space: nowrap;
+        }
+
+        /* ── Connect bar ────────────────────────────────────────────── */
+        #top-container {
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            max-height: 200px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        #top-container.hidden {
+            max-height: 0;
+            opacity: 0;
+        }
+
+        #connect-bar {
+            display: flex;
+            gap: 8px;
+            padding: 10px 16px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+        }
+
+        #connect-bar input {
+            flex: 1;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e6edf3;
+            padding: 8px 12px;
+            font-size: 0.85rem;
+        }
+
+        /* ── Buttons ─────────────────────────────────────────────────  */
+        button {
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+
+        button:hover {
+            background: #2ea043;
+        }
+
+        button.danger {
+            background: #da3633;
+        }
+
+        button.danger:hover {
+            background: #f85149;
+        }
+
+        button.secondary {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+        }
+
+        button.secondary:hover {
+            background: #30363d;
+        }
+
+        /* ── Terminal ────────────────────────────────────────────────── */
+        #terminal-container {
+            flex: 1;
+            padding: 12px;
+            background: #000;
+            overflow: hidden;
+            min-height: 0;
+            /* critical for flex shrink */
+        }
+
+        .xterm-viewport::-webkit-scrollbar {
+            display: none;
+        }
+
+        .xterm-viewport {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* ── Shortcut bar ───────────────────────────────────────────── */
+        #shortcut-bar {
+            display: flex;
+            gap: 6px;
+            padding: 8px 12px;
+            background: #161b22;
+            border-top: 1px solid #30363d;
+            overflow-x: auto;
+            white-space: nowrap;
+            flex-shrink: 0;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        #shortcut-bar::-webkit-scrollbar {
+            display: none;
+        }
+
+        #shortcut-bar button {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 6px 14px;
+            font-family: inherit;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        #shortcut-bar button:active {
+            background: #30363d;
+        }
+
+        /* ── Input bar ──────────────────────────────────────────────── */
+        #input-bar {
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            background: #161b22;
+            border-top: 1px solid #30363d;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
+
+        #prompt-input {
+            flex: 1;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e6edf3;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            font-family: 'Courier New', monospace;
+            resize: none;
+            min-height: 38px;
+            max-height: 160px;
+            line-height: 1.4;
+            overflow-y: auto;
+            transition: border-color 0.2s;
+        }
+
+        #prompt-input:focus {
+            outline: none;
+            border-color: #388bfd;
+        }
+
+        #prompt-input::placeholder {
+            color: #484f58;
+        }
+
+        #send-btn {
+            padding: 8px 18px;
+            align-self: flex-end;
+        }
+
+        /* ── QR Scanner Modal ───────────────────────────────────── */
+        #qr-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        #qr-modal.active {
+            display: flex;
+        }
+
+        #qr-modal h2 {
+            font-size: 1.1rem;
+            margin-bottom: 16px;
+            color: #e6edf3;
+        }
+
+        #qr-reader {
+            width: 100%;
+            max-width: 350px;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        #qr-close-btn {
+            margin-top: 16px;
+            background: #da3633;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="top-container">
+        <header>
+            <div id="status-dot"></div>
+            <h1>🤖 Gemini Bridge</h1>
+            <span id="status-label">Disconnected</span>
+        </header>
+
+        <div id="connect-bar">
+            <input id="ws-url" type="text" placeholder="wss://192.168.x.x:3939" />
+            <button id="scan-btn" class="secondary" onclick="startQrScan()">📷 Scan</button>
+            <button id="connect-btn" onclick="connect()">Connect</button>
+        </div>
+    </div>
+
+    <!-- QR Scanner Modal -->
+    <div id="qr-modal">
+        <h2>📷 Scan QR Code</h2>
+        <div id="qr-reader"></div>
+        <button id="qr-close-btn" class="danger" onclick="stopQrScan()">Cancel</button>
+    </div>
+
+    <!-- Terminal display -->
+    <div id="terminal-container"></div>
+
+    <!-- Shortcut keys toolbar -->
+    <div id="shortcut-bar">
+        <button onclick="sendRaw('\x1b')">Esc</button>
+        <button onclick="sendRaw('\x09')">Tab</button>
+        <button onclick="sendRaw('\x1b[Z')">⇧Tab</button>
+        <button onclick="sendRaw('\x1b[A')">↑</button>
+        <button onclick="sendRaw('\x1b[B')">↓</button>
+        <button onclick="sendRaw('\x0d')" style="background: #238636; color: white;">Enter</button>
+        <button onclick="sendRaw('\x03')">Ctrl+C</button>
+        <button onclick="sendRaw('\x16')">Ctrl+V</button>
+        <button onclick="sendRaw('\x12')">Ctrl+R</button>
+        <button onclick="sendRaw('\x04')">Ctrl+D</button>
+    </div>
+
+    <!-- Dedicated prompt input bar -->
+    <div id="input-bar">
+        <textarea id="prompt-input" enterkeyhint="send" rows="1" placeholder="Type a prompt…"></textarea>
+        <button id="send-btn" onclick="submitPrompt()">Send</button>
+    </div>
+
+    <script>
+        let AUTH_TOKEN = null; // Fetched dynamically from server
+
+        // ── State ──────────────────────────────────────────────────────────────────
+        let ws = null;
+        let connected = false;
+        let manualDisconnect = false;
+        let reconnectTimer = null;
+        let reconnectAttempt = 0;
+        const MAX_BACKOFF_MS = 15_000;
+
+        // ── DOM refs ───────────────────────────────────────────────────────────────
+        const statusDot = document.getElementById('status-dot');
+        const statusLabel = document.getElementById('status-label');
+        const connectBtn = document.getElementById('connect-btn');
+        const topContainer = document.getElementById('top-container');
+        const wsUrlInput = document.getElementById('ws-url');
+        const promptInput = document.getElementById('prompt-input');
+
+        // Auto-detect WS URL from the page's own host (works when served by bridge-server)
+        const isSecure = window.location.protocol === 'https:';
+        wsUrlInput.value = localStorage.getItem('gemini-bridge-url')
+            || (window.location.host ? `${isSecure ? 'wss' : 'ws'}://${window.location.host}` : '');
+
+        // ── xterm.js ───────────────────────────────────────────────────────────────
+        const term = new Terminal({
+            cursorBlink: true,
+            fontFamily: '"Courier New", monospace',
+            fontSize: 14,
+            theme: {
+                background: '#000000',
+                foreground: '#e6edf3'
+            }
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal-container'));
+
+        // Disable mobile keyboard autocorrect/buffering so it streams raw keystrokes
+        if (term.textarea) {
+            term.textarea.setAttribute('autocapitalize', 'off');
+            term.textarea.setAttribute('autocorrect', 'off');
+            term.textarea.setAttribute('autocomplete', 'off');
+            term.textarea.setAttribute('spellcheck', 'false');
+        }
+
+        fitAddon.fit();
+        term.writeln('Waiting for connection...');
+
+        // ── Auto-grow textarea ─────────────────────────────────────────────────────
+        promptInput.addEventListener('input', () => {
+            promptInput.style.height = 'auto';
+            promptInput.style.height = Math.min(promptInput.scrollHeight, 160) + 'px';
+        });
+
+        // Enter = send, Shift+Enter = newline
+        promptInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitPrompt();
+            }
+        });
+
+        // Fallback for Android mobile keyboards where keydown is intercepted by IME
+        promptInput.addEventListener('beforeinput', (e) => {
+            if (e.inputType === 'insertLineBreak') {
+                e.preventDefault();
+                submitPrompt();
+            }
+        });
+
+        function submitPrompt() {
+            let rawText = promptInput.value;
+
+            // Mobile keyboards often inject a \n right before they fire the send event.
+            // We strip any trailing \n or \r here to prevent the PTY from receiving a dangling newline.
+            rawText = rawText.replace(/[\r\n]+$/, '');
+
+            if (!rawText.trim() || !connected || !ws) {
+                promptInput.value = '';
+                promptInput.style.height = 'auto';
+                return;
+            }
+
+            // Convert HTML textarea newlines (\n) to Carriage Returns (\r) for the PTY
+            const sanitizedText = rawText.replace(/\n/g, '\r');
+
+            // Send the text content first
+            ws.send(JSON.stringify({ type: 'prompt', text: sanitizedText }));
+
+            // Give the CLI's prompt library a tiny moment to process the paste chunk
+            // before we hit it with the final Enter key. This fixes an issue where libraries
+            // like `inquirer` or `enquirer` swallow the \r if it arrives in the same tick.
+            setTimeout(() => {
+                if (connected && ws) {
+                    ws.send(JSON.stringify({ type: 'prompt', text: '\r' }));
+                }
+            }, 150);
+
+            promptInput.value = '';
+            promptInput.style.height = 'auto';
+            promptInput.focus();
+
+            // Android IME bug fix: clear again slightly later to handle word-commit flushes
+            setTimeout(() => {
+                if (promptInput.value.trim() === '') {
+                    promptInput.value = '';
+                    promptInput.style.height = 'auto';
+                }
+            }, 50);
+        }
+
+        // Shortcut bar sends raw escape sequences directly
+        function sendRaw(seq) {
+            if (!connected || !ws) return;
+            ws.send(JSON.stringify({ type: 'prompt', text: seq }));
+            // Auto-focus terminal so keyboard stays up if they tapped a shortcut
+            term.focus();
+        }
+
+        // ── Resize handling ────────────────────────────────────────────────────────
+        let initialHeight = window.innerHeight;
+
+        function sendResize() {
+            if (connected && ws) {
+                ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            // Avoid reflowing PTY when mobile keyboard pops up
+            const keyboardOpen = window.innerHeight < initialHeight * 0.75;
+            if (!keyboardOpen) {
+                initialHeight = window.innerHeight;
+                fitAddon.fit();
+                sendResize();
+            } else {
+                // keyboard opened — don't resize terminal
+            }
+        });
+
+        // ── Touch: double-tap to toggle header ────────────────────────────────────
+        let lastTap = 0;
+        document.getElementById('terminal-container').addEventListener('touchend', (e) => {
+            const now = Date.now();
+            if (now - lastTap < 500 && now - lastTap > 0) {
+                if (topContainer.classList.contains('hidden')) {
+                    topContainer.classList.remove('hidden');
+                    if (connected) setTimeout(() => topContainer.classList.add('hidden'), 5000);
+                } else if (connected) {
+                    topContainer.classList.add('hidden');
+                }
+                e.preventDefault();
+            }
+            lastTap = now;
+        });
+
+        // ── Connection state ───────────────────────────────────────────────────────
+        function setConnected(state) {
+            connected = state;
+            statusDot.className = state ? 'connected' : '';
+            statusLabel.textContent = state ? 'Connected' : 'Disconnected';
+            connectBtn.textContent = state ? 'Disconnect' : 'Connect';
+            connectBtn.className = state ? 'danger' : '';
+            connectBtn.onclick = state ? disconnect : connect;
+
+            if (state) {
+                term.focus();
+
+                // Once "Connected!" is shown for 800ms, hide the top bar
+                setTimeout(() => {
+                    topContainer.classList.add('hidden');
+
+                    // The CSS transition takes 0.3s. Wait for it to finish mapping layout
+                    // then recalculate the new bigger total terminal size and inform PTY.
+                    setTimeout(() => {
+                        fitAddon.fit();
+                        sendResize();
+                        term.scrollToBottom(); // Ensure view drops down to the new prompt line
+                        promptInput.focus();
+                    }, 350);
+                }, 800);
+            } else {
+                topContainer.classList.remove('hidden');
+                setTimeout(() => {
+                    fitAddon.fit();
+                }, 350);
+            }
+        }
+
+        // ── Auto-reconnect ─────────────────────────────────────────────────────────
+        function scheduleReconnect(url) {
+            if (manualDisconnect) return;
+            const delay = Math.min(3000 * Math.pow(2, reconnectAttempt), MAX_BACKOFF_MS);
+            reconnectAttempt++;
+            const s = Math.round(delay / 1000);
+            term.writeln(`\r\n\x1b[33mReconnecting in ${s}s... (attempt ${reconnectAttempt})\x1b[0m`);
+            statusDot.className = 'reconnecting';
+            statusLabel.textContent = `Reconnect in ${s}s`;
+            reconnectTimer = setTimeout(() => openSocket(url), delay);
+        }
+
+        // ── WebSocket ──────────────────────────────────────────────────────────────
+        function openSocket(url) {
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'auth', token: AUTH_TOKEN }));
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'auth') {
+                        if (msg.status === 'ok') {
+                            reconnectAttempt = 0;
+                            setConnected(true);
+                            term.reset();
+                            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+                        } else {
+                            term.writeln('\r\n\x1b[31mAuth denied. Check your token.\x1b[0m');
+                            ws.close();
+                        }
+                    } else if (msg.type === 'output') {
+                        term.write(msg.text);
+                    }
+                } catch {
+                    term.write(event.data);
+                }
+            };
+
+            ws.onclose = () => {
+                setConnected(false);
+                term.writeln('\r\n\x1b[90mConnection closed.\x1b[0m');
+                scheduleReconnect(url);
+            };
+
+            ws.onerror = () => {
+                term.writeln(`\r\n\x1b[31m[ERROR] Could not reach: ${url}\x1b[0m`);
+                term.writeln('\x1b[90m  • Are both devices on the same Wi-Fi?');
+                term.writeln('  • Is the bridge server running?');
+                term.writeln('  • Check Windows Firewall if on PC.\x1b[0m');
+            };
+        }
+
+        function connect() {
+            let url = wsUrlInput.value.trim();
+            if (!url) {
+                term.writeln('\r\n\x1b[31mError: Enter a WebSocket URL\x1b[0m');
+                return;
+            }
+            if (!url.startsWith('ws://') && !url.startsWith('wss://')) url = 'ws://' + url;
+            wsUrlInput.value = url;
+            localStorage.setItem('gemini-bridge-url', url);
+
+            manualDisconnect = false;
+            reconnectAttempt = 0;
+            clearTimeout(reconnectTimer);
+
+            term.reset();
+            term.writeln(`\x1b[90mConnecting to ${url}...\x1b[0m`);
+            openSocket(url);
+        }
+
+        function disconnect() {
+            manualDisconnect = true;
+            clearTimeout(reconnectTimer);
+            if (ws) ws.close();
+        }
+
+        // ── Fetch token from server on page load ────────────────────────────────────
+        async function fetchToken() {
+            try {
+                const res = await fetch('/api/token');
+                const data = await res.json();
+                AUTH_TOKEN = data.token;
+                term.writeln('\x1b[32m✓ Token loaded\x1b[0m');
+            } catch {
+                term.writeln('\x1b[31m✗ Could not fetch auth token from server.\x1b[0m');
+                term.writeln('\x1b[90m  If loading this file directly, enter the token URL manually.\x1b[0m');
+            }
+        }
+
+        // Auto-fetch token and auto-connect when served by bridge-server
+        fetchToken().then(() => {
+            if (AUTH_TOKEN && wsUrlInput.value) {
+                connect();
+            }
+        });
+
+        // ── QR Code Scanner ─────────────────────────────────────────────────────────
+        let html5QrCode = null;
+
+        function startQrScan() {
+            const modal = document.getElementById('qr-modal');
+            modal.classList.add('active');
+
+            html5QrCode = new Html5Qrcode('qr-reader');
+            html5QrCode.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    // Successfully scanned
+                    stopQrScan();
+                    handleScannedURL(decodedText);
+                },
+                () => { /* ignore scan errors */ }
+            ).catch((err) => {
+                term.writeln(`\r\n\x1b[31m[QR] Camera error: ${err}\x1b[0m`);
+                stopQrScan();
+            });
+        }
+
+        function stopQrScan() {
+            const modal = document.getElementById('qr-modal');
+            modal.classList.remove('active');
+            if (html5QrCode) {
+                html5QrCode.stop().catch(() => { });
+                html5QrCode.clear();
+                html5QrCode = null;
+            }
+        }
+
+        function handleScannedURL(text) {
+            try {
+                const url = new URL(text);
+                // Convert https:// to wss://, http:// to ws://
+                const wsProto = url.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProto}//${url.host}`;
+                wsUrlInput.value = wsUrl;
+                localStorage.setItem('gemini-bridge-url', wsUrl);
+
+                term.writeln(`\r\n\x1b[32m✓ Scanned: ${wsUrl}\x1b[0m`);
+
+                // If we don't have a token yet, try fetching from the scanned server
+                const tokenFetchUrl = `${url.protocol}//${url.host}/api/token`;
+                fetch(tokenFetchUrl)
+                    .then(r => r.json())
+                    .then(data => {
+                        AUTH_TOKEN = data.token;
+                        term.writeln('\x1b[32m✓ Token loaded\x1b[0m');
+                        connect();
+                    })
+                    .catch(() => {
+                        term.writeln('\x1b[33m⚠ Could not fetch token. Enter it manually if needed.\x1b[0m');
+                    });
+            } catch {
+                term.writeln(`\r\n\x1b[31m✗ Invalid QR data: ${text}\x1b[0m`);
+            }
+        }
+    </script>
+</body>
+
+</html>

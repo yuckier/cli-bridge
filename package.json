@@ -1,0 +1,27 @@
+{
+  "name": "gemini-bridge",
+  "displayName": "Gemini Bridge",
+  "description": "Control Gemini CLI (or Claude Code, OpenCode, etc.) from your phone via WebSocket + HTTPS",
+  "version": "2.0.0",
+  "license": "MIT",
+  "main": "bridge-server.js",
+  "keywords": [
+    "gemini",
+    "claude-code",
+    "terminal",
+    "pty",
+    "websocket",
+    "remote",
+    "mobile"
+  ],
+  "scripts": {
+    "start": "node bridge-server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0",
+    "qrcode-terminal": "^0.12.0",
+    "selfsigned": "^5.5.0",
+    "ws": "^8.16.0"
+  }
+}
